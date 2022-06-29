@@ -60,6 +60,11 @@ class client(object):
         ans = json.loads(req.text)
         return ans
 
+    def get_tree(self,did:int):
+        req = requests.get(self.host+"/api/filesystem/get_tree",params={"did":did},headers=self.headers)
+        ans = json.loads(req.text)
+        return ans
+
     def download_fragment(self, fdid: int, index: int):
         req = requests.get(self.host + "/api/download_fragment", params={"fdid": fdid, "index": index},
                            headers=self.headers)

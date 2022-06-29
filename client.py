@@ -7,7 +7,7 @@ import hashlib
 
 class client(object):
     def __init__(self):
-        self.host = "http://121.37.159.103:7777"
+        self.host = "http://121.36.249.52:7777"
         self.headers = dict()
 
     def logout(self):
@@ -156,6 +156,23 @@ class client(object):
         self.headers.pop('content-type')
         ans = json.loads(req.text)
         return ans
+
+    def get_tree(self, did:int):
+        self.headers['content-type'] = 'application/json'
+        req = requests.get(self.host + "/api/filesystem/get_tree", headers=self.headers,
+                           params={"did": did})
+        self.headers.pop('content-type')
+        ans = json.loads(req.text)
+        return ans
+
+    def get_md5code(self, fdid:int):
+        self.headers['content-type'] = 'application/json'
+        req = requests.get(self.host + "/api/filesystem/get_md5code", headers=self.headers,
+                           params={"fdid": fdid})
+        self.headers.pop('content-type')
+        ans = json.loads(req.text)
+        return ans
+
 
     def upload_file(self, filename: str, parent_dir_id: int, md5code: str):
         self.headers['content-type'] = 'application/json'

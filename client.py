@@ -271,6 +271,23 @@ class client(object):
         ans = json.loads(req.text)
         return ans
 
+    def get_tree(self, did:int):
+        self.headers['content-type'] = 'application/json'
+        req = requests.get(self.host + "/api/filesystem/get_tree", headers=self.headers,
+                           params={"did": did})
+        self.headers.pop('content-type')
+        ans = json.loads(req.text)
+        return ans
+
+    def get_md5code(self, fdid:int):
+        self.headers['content-type'] = 'application/json'
+        req = requests.get(self.host + "/api/filesystem/get_md5code", headers=self.headers,
+                           params={"fdid": fdid})
+        self.headers.pop('content-type')
+        ans = json.loads(req.text)
+        return ans
+
+
     def upload_file(self, filename: str, parent_dir_id: int, md5code: str):
         self.headers['content-type'] = 'application/json'
         body = json.dumps({"filename": filename, "parent_dir_id": parent_dir_id, "md5": md5code}, ensure_ascii=False).encode('utf-8')

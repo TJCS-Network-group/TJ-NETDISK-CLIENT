@@ -16,7 +16,8 @@ import config
 from NetDisk import Ui_NetDiskWindow
 from MyProgress import MyProgress
 from client import client
-from uploadThread import UploadFileThread
+from uploadThread import UploadFileThread, UploadDirThread
+from downloadThread import DownloadFileThread, DownloadDirThread
 import requests
 import os
 import copy
@@ -38,8 +39,10 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
         super(NetDisk, self).__init__()
 
         self.path_list = []
-        self.thread_list = {}
+        self.upload_thread_list = {}
+        self.download_thread_list = {}
         self.upload_item_list = {}
+        self.download_item_list = {}
         self.rightClickMenu = None
         self.setupUi(self)
         self.show()
@@ -81,6 +84,7 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
         self.action_2.triggered.connect(self.setWorkDir)
 
         self.listWidget.doubleClicked.connect(self.uploadDoubleClick)
+        self.listWidget_2.doubleClicked.connect(self.downloadDoubleClick)
 
         # resp = requests.post("http://121.37.159.103:7777")
         # print(resp.header["Set-Cookie"])
@@ -228,9 +232,9 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
                 ans = self.client.rename_dir(renameRow['id'], newName)
             print(ans)
             if ans['statusCode'] == 200:
-                if self.moveFrom['id'] is not None and self.moveFrom['id'] == renameRow['id']:
+                if self.moveFrom is not None and self.moveFrom['id'] == renameRow['id']:
                     self.moveFrom['name'] = newName
-                elif self.copyFrom['id'] is not None and self.copyFrom['id'] == renameRow['id']:
+                elif self.copyFrom is not None and self.copyFrom['id'] == renameRow['id']:
                     self.copyFrom['name'] = newName
                 QMessageBox.about(self, ' ', f'重命名{renameRow["name"]}为{newName}')
                 self.refreshPath()
@@ -247,9 +251,9 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
             ans = self.client.remove_dir(deleteRow['id'])
         print(ans)
         if ans['statusCode'] == 200:
-            if self.moveFrom['id'] is not None and self.moveFrom['id'] == deleteRow['id']:
+            if self.moveFrom is not None and self.moveFrom['id'] == deleteRow['id']:
                 self.moveFrom = None
-            elif self.copyFrom['id'] is not None and self.copyFrom['id'] == deleteRow['id']:
+            elif self.copyFrom is not None and self.copyFrom['id'] == deleteRow['id']:
                 self.copyFrom = None
             QMessageBox.about(self, ' ', f'删除{deleteRow["name"]}成功')
             self.refreshPath()
@@ -307,7 +311,64 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
         downloadRow = self.file_list[self.selectRowIndex]
         dirPath = QFileDialog.getExistingDirectory(self, "选择要文件的存放位置")
         if dirPath != '':
-            print("download", dirPath, downloadRow)
+            if downloadRow['type'] == 0:
+                print("download file", dirPath, downloadRow)
+                download_index = copy.deepcopy(self.user_config['download_index'])
+                self.user_config['download_list'][download_index] = {"type": "file", "save_path": dirPath,"filename":downloadRow['name'],
+                                                                     "fdid": downloadRow['id'], "fsize": downloadRow['fsize'],
+                                                                     "isPause": False}
+                self.user_config['download_index'] += 1
+
+                config.set_user_config(self.current_user, self.user_config)
+
+                newThread = DownloadFileThread()
+                newThread.setOption(download_index, dirPath,downloadRow['name'], downloadRow['id'], downloadRow['fsize'])
+                newThread.trigger.connect(self.downloadFileUpdate)
+                newThread.start()
+                # newThread.run()
+                self.download_thread_list[download_index] = newThread
+
+                item = QListWidgetItem()
+                item.setSizeHint(QSize(200, 50))
+                widget = MyProgress()
+                self.listWidget_2.addItem(item)
+                self.listWidget_2.setItemWidget(item, widget)
+                widget.setFileNameText(downloadRow['name'])
+                widget.setFSize(downloadRow['fsize'])
+                widget.setProgressValue(0)
+                widget.start()
+
+                # self.listWidget.itemWidget(item)
+                self.download_item_list[download_index] = item
+            else:
+                print("download dir", dirPath, downloadRow)
+                download_index = copy.deepcopy(self.user_config['download_index'])
+                self.user_config['download_list'][download_index] = {"type": "dir", "save_path": dirPath,
+                                                                     "did": downloadRow['id'], "file_download_list": [],
+                                                                     "isPause": False, "totalSize": 0}
+                self.user_config['download_index'] += 1
+
+                config.set_user_config(self.current_user, self.user_config)
+
+                newThread = DownloadDirThread()
+                newThread.setOption(download_index, downloadRow['id'], dirPath)
+                newThread.trigger.connect(self.downloadDirUpdate)
+                newThread.start()
+                # newThread.run()
+                self.download_thread_list[download_index] = newThread
+
+                item = QListWidgetItem()
+                item.setSizeHint(QSize(200, 50))
+                widget = MyProgress()
+                self.listWidget_2.addItem(item)
+                self.listWidget_2.setItemWidget(item, widget)
+                widget.setFileNameText(downloadRow['name'])
+                widget.label_2.setText("创建中")
+                widget.setProgressValue(0)
+
+
+                # self.listWidget.itemWidget(item)
+                self.download_item_list[download_index] = item
 
     def newDirFunc(self):
         print("newDir")
@@ -330,22 +391,30 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
             dirname = dirpath.split('/')[-1]
             upload_index = copy.deepcopy(self.user_config['upload_index'])
             pid = self.getPid()
+            self.user_config['upload_list'][upload_index] = {"type": "dir", "dirname": dirname, "dirpath": dirpath,
+                                                             "pid": pid, "isPause": False, "file_upload_list": None}
+            self.user_config['upload_index'] += 1
 
-            # ans = self.client.create_dir(self.getPid(),dirname)
-            # print(ans)
-            # dirMap = {dirpath: ans['data']['did']}
-            # fileMap = {}
-            # totalSize = 0
-            # for root, dirs, files in os.walk(dirpath):
-            #     print(root, dirs, files)
-            #     for subdir in dirs:
-            #         ans = self.client.create_dir(dirMap[root], subdir)
-            #         print(ans)
-            #         dirMap[os.path.join(root, subdir)] = ans['data']['did']
-            #
-            #     for file in files:
-            #         fileMap[os.path.join(root, file)] = dirMap[root]
-            #         totalSize += os.path.getsize(os.path.join(root, file))
+            config.set_user_config(self.current_user, self.user_config)
+
+            newThread = UploadDirThread()
+            newThread.setOption(upload_index, dirpath, pid)
+            newThread.trigger.connect(self.uploadDirUpdate)
+            newThread.start()
+            # newThread.run()
+            self.upload_thread_list[upload_index] = newThread
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(200, 50))
+            widget = MyProgress()
+            self.listWidget.addItem(item)
+            self.listWidget.setItemWidget(item, widget)
+            widget.setFileNameText(dirname)
+            widget.label_2.setText("创建中")
+            widget.setProgressValue(0)
+
+            # self.listWidget.itemWidget(item)
+            self.upload_item_list[upload_index] = item
 
     # TODO 上传文件
     def uploadFileFunc(self):
@@ -370,10 +439,10 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
 
             newThread = UploadFileThread()
             newThread.setOption(upload_index, filepath, pid)
-            newThread.trigger.connect(self.uploadUpdate)
+            newThread.trigger.connect(self.uploadFileUpdate)
             # newThread.console.connect(self.consolePrint)
             newThread.start()
-            self.thread_list[upload_index] = newThread
+            self.upload_thread_list[upload_index] = newThread
             item = QListWidgetItem()
             item.setSizeHint(QSize(200, 50))
             widget = MyProgress()
@@ -389,8 +458,8 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
             self.upload_item_list[upload_index] = item
             print(1)
 
-    def uploadUpdate(self, upload_index: int, message):
-        print("upload update", upload_index, message)
+    def uploadDirUpdate(self, upload_index: int, message):
+        print("upload dir update", upload_index, message)
         if upload_index == -1:
             return
 
@@ -400,8 +469,40 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
             widget.finish()
             self.user_config['upload_list'].pop(upload_index)
             config.set_user_config(self.current_user, self.user_config)
-
             self.refreshPath()
+
+        elif message == 'fail':
+
+            pass
+
+        elif message == 'start':
+            item = self.upload_item_list[upload_index]
+            widget = self.listWidget.itemWidget(item)
+            # print("dirsize", self.user_config['upload_list'][upload_index])
+            widget.setFSize(self.user_config['upload_list'][upload_index]['totalSize'])
+            widget.setProgressValue(0)
+            widget.start()
+            pass
+        else:
+
+            item = self.upload_item_list[upload_index]
+            widget = self.listWidget.itemWidget(item)
+            value = int(message)
+            widget.setProgressValue(value)
+
+    def uploadFileUpdate(self, upload_index: int, message):
+        print("upload file update", upload_index, message)
+        if upload_index == -1:
+            return
+
+        if message == 'success':
+            item = self.upload_item_list[upload_index]
+            widget = self.listWidget.itemWidget(item)
+            widget.finish()
+            self.user_config['upload_list'].pop(upload_index)
+            config.set_user_config(self.current_user, self.user_config)
+            self.refreshPath()
+
         elif message == 'fail':
 
             pass
@@ -434,12 +535,88 @@ class NetDisk(QtWidgets.QMainWindow, Ui_NetDiskWindow):
         else:
             self.user_config['upload_list'][upload_index]['isPause'] = True
             widget.pause()
-        self.thread_list[upload_index].trigger.emit(-1, "doubleClick")
+        self.upload_thread_list[upload_index].trigger.emit(-1, "doubleClick")
 
         # upload_index = widget.
 
-    def pauseUpload(self, upload_index):
-        pass
+    def downloadFileUpdate(self, download_index:int, message:str):
+        print("download file update", download_index, message)
+        if download_index == -1:
+            return
+
+        if message == 'success':
+            item = self.download_item_list[download_index]
+            widget = self.listWidget_2.itemWidget(item)
+            widget.finish()
+            self.user_config['download_list'].pop(download_index)
+            config.set_user_config(self.current_user, self.user_config)
+            self.refreshPath()
+
+        elif message == 'fail':
+
+            pass
+
+        elif message == 'start':
+
+            pass
+
+
+        else:
+            item = self.download_item_list[download_index]
+            widget = self.listWidget_2.itemWidget(item)
+            value = (int(message) + 1) * FRAG_SIZE
+            widget.setProgressValue(value)
+
+    def downloadDirUpdate(self, download_index:int, message:str):
+        print("download dir update", download_index, message)
+
+        if download_index == -1:
+            return
+
+        if message == 'success':
+            item = self.download_item_list[download_index]
+            widget = self.listWidget_2.itemWidget(item)
+            widget.finish()
+            self.user_config['download_list'].pop(download_index)
+            config.set_user_config(self.current_user, self.user_config)
+            self.refreshPath()
+
+        elif message == 'fail':
+
+            pass
+
+        elif message == 'start':
+            item = self.download_item_list[download_index]
+            widget = self.listWidget_2.itemWidget(item)
+            widget.setFSize(self.user_config['download_list'][download_index]['totalSize'])
+            widget.setProgressValue(0)
+            widget.start()
+            pass
+
+
+        else:
+            item = self.download_item_list[download_index]
+            widget = self.listWidget_2.itemWidget(item)
+            value = int(message)
+            widget.setProgressValue(value)
+
+    def downloadDoubleClick(self, index):
+        print(index.row())
+        # self.listWidget.indexWidget(index)
+        item = self.listWidget_2.item(index.row())
+        download_index = get_dict_key(self.download_item_list, item)
+        print(download_index)
+        widget = self.listWidget_2.itemWidget(item)
+        print(self.user_config['download_list'])
+        if self.user_config['download_list'].get(download_index) is None:
+            return
+        if self.user_config['download_list'][download_index]['isPause']:
+            self.user_config['download_list'][download_index]['isPause'] = False
+            widget.restart()
+        else:
+            self.user_config['download_list'][download_index]['isPause'] = True
+            widget.pause()
+        self.download_thread_list[download_index].trigger.emit(-1, "doubleClick")
 
     def refreshFunc(self):
         print("refresh")

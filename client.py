@@ -103,6 +103,16 @@ class client(object):
         ans = json.loads(req.text)
         return ans
 
+    def get_md5code(self,fdid:int):
+        try:
+            req = requests.get(self.host+"/api/filesystem/get_md5code",params={"fdid":fdid},
+            headers=self.headers,timeout=self.timeout)
+        except Exception as e:
+            logging.error(repr(e)+'\n')
+            return {"statusCode":500,"message":repr(e),"success":False,"data":{}}
+        ans = json.loads(req.text)
+        return ans
+
     def download_fragment(self, fdid: int, index: int):
         try:
             req = requests.get(self.host + "/api/download_fragment", params={"fdid": fdid, "index": index},

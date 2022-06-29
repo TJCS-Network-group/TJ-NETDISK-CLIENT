@@ -149,8 +149,9 @@ class client(object):
             self.headers.pop('content-type')
             return {"statusCode":500,"message":repr(e),"success":False,"data":{}}
         self.headers.pop('content-type')
-        self.headers["Cookie"] = (req.headers["Set-Cookie"])
         ans = json.loads(req.text)
+        if ans["success"] == True:
+            self.headers["Cookie"] = (req.headers["Set-Cookie"])
         return ans
 
     def create_dir(self, pid: int, dname: str):

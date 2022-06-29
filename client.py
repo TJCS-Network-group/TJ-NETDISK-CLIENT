@@ -8,7 +8,7 @@ logging.basicConfig(filename="./client.log",filemode="a+")
 
 class client(object):
     def __init__(self):
-        self.host = "http://121.37.159.103:7777"
+        self.host = "http://121.36.249.52:7777"
         self.headers = dict()
         self.timeout = (3.2,40)
 

@@ -1,3 +1,4 @@
+import os.path
 from PyQt6 import QtCore
 from PyQt6.QtCore import QThread, QWaitCondition
 import hashlib
@@ -12,6 +13,8 @@ from hashlib import md5
 import shutil
 
 MAX_FRAGMENT_SIZE = 4 * 1024 * 1024
+
+FRAG_SIZE = 4 * 1024 * 1024
 
 
 class DownloadFileThread(QThread):
@@ -240,6 +243,19 @@ class DownloadDirThread(QThread):
         self.user_config = config.get_user_config(self.current_user)
         self.client.headers['Cookie'] = self.user_config['Cookie']
         self.tmp_path = self.user_config['tmp_path']
+        self.download_index = None
+        self.filename = None
+        self.filesize = None
+        self.fdid = None
+        self.filePath = None
+        self.isPause = False
+
+    def setOption(self, download_index: int, filePath: str, pid: int):
+        print("set option")
+        self.download_index = download_index
+        self.filePath = filePath
+        self.pid = pid
+        self.trigger.connect(self.triggerRecv)
 
     def __del__(self):
         self.wait()
@@ -256,6 +272,8 @@ class DownloadDirThread(QThread):
                 self.haveDownload += file_download['fsize']
             # print("download file end", file_download['filename'])
             # self.trigger.emit(self.download_index, "file_downloaded")
+            self.trigger.emit(self.download_index, "start")
+            self.downloadFile(self.filePath, self.pid)
             self.trigger.emit(self.download_index, "success")
 
         except Exception as e:
@@ -276,7 +294,8 @@ class DownloadDirThread(QThread):
         self.totalSize = 0
         self.traverseTreeList(tree_list, self.save_path)
         print(self.file_download_list)
-        self.user_config['download_list'][self.download_index]['file_download_list'] = self.file_download_list
+        self.user_config['download_list'][
+            self.download_index]['file_download_list'] = self.file_download_list
         self.user_config['download_list'][self.download_index]['totalSize'] = self.totalSize
         config.set_user_config(self.current_user, self.user_config)
 
@@ -295,7 +314,7 @@ class DownloadDirThread(QThread):
                             hasMD5 = True
                             break
                         new_name_vec = new_name.split('.')
-                        if len(new_name_vec)>1:
+                        if len(new_name_vec) > 1:
                             new_name_vec[-2] += "-副本"
                             new_name = '.'.join(new_name_vec)
                         else:
@@ -307,9 +326,13 @@ class DownloadDirThread(QThread):
                         continue
 
                 self.totalSize += tree['size']
-                self.file_download_list.append(
-                    {"fdid": tree['id'], "save_path": new_path, "index": 0,
-                     "fsize": tree['size'], "filename":tree['name']})
+                self.file_download_list.append({
+                    "fdid": tree['id'],
+                    "save_path": new_path,
+                    "index": 0,
+                    "fsize": tree['size'],
+                    "filename": tree['name']
+                })
             else:
                 next_path = os.path.join(path, tree['label'])
                 if not os.path.exists(next_path):
@@ -331,10 +354,26 @@ class DownloadDirThread(QThread):
                 time.sleep(0.1)
                 continue
             self.download_frag(fdid, frag_dir_path, index)
-            self.trigger.emit(self.download_index, str(self.haveDownload+min((index+1)*MAX_FRAGMENT_SIZE,fsize)))
+            self.trigger.emit(self.download_index,
+                              str(self.haveDownload + min((index + 1) * MAX_FRAGMENT_SIZE, fsize)))
             index += 1
             pass
         self.combine(save_path, frag_dir_path)
+
+    def downloadFile(self, filePath, fdid):
+        c = client()
+        c.headers['Cookie'] = config.get_user_config(config.get_current_user())['Cookie']
+        #  检查filePath处是否存在文件
+
+        # 不存在则下载
+
+        #？获取文件信息
+
+        index = self.index
+        while True:
+            if self.isPause:
+                time.sleep(1)
+                continue
 
     def triggerRecv(self, download_index, message):
         if download_index == -1:
@@ -359,5 +398,3 @@ class DownloadDirThread(QThread):
                 fp.write(frag_fp.read())
                 frag_fp.close()
             shutil.rmtree(file_tmp_path)
-
-
